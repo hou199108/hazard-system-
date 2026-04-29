@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>隐患排查管理系统</title>
+  <!-- 使用国内 CDN -->
+  <script src="https://cdn.bootcdn.net/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/element-plus/2.5.6/index.min.css">
+  <script src="https://cdn.bootcdn.net/ajax/libs/element-plus/2.5.6/index.full.min.js"></script>
+  <script src="https://cdn.bootcdn.net/ajax/libs/vue-router/4.3.0/vue-router.global.prod.min.js"></script>
+  <script src="https://cdn.bootcdn.net/ajax/libs/axios/1.6.7/axios.min.js"></script>
+  <script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #app { height: 100%; font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', sans-serif; }
+    .login-container { height: 100vh; display: flex; justify-content: center; align-items: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .login-box { width: 400px; padding: 40px; background: white; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+    .login-box h2 { text-align: center; margin-bottom: 30px; color: #333; }
+    .tip { text-align: center; color: #999; font-size: 12px; margin-top: 20px; }
+    .layout-container { height: 100vh; display: flex; }
+    .sidebar { background-color: #304156; width: 220px; }
+    .logo { height: 60px; display: flex; align-items: center; justify-content: center; color: white; font-size: 18px; font-weight: bold; border-bottom: 1px solid #3a4a5e; }
+    .logo .icon { font-size: 24px; margin-right: 8px; }
+    .header { background: white; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 4px rgba(0,0,0,0.1); padding: 0 20px; }
+    .main { background: #f0f2f5; padding: 20px; overflow: auto; }
+    .stat-cards { margin-bottom: 20px; }
+    .stat-card { border-radius: 8px; }
+    .stat-content { display: flex; align-items: center; }
+    .stat-icon { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 15px; }
+    .stat-value { font-size: 28px; font-weight: bold; color: #333; }
+    .stat-label { font-size: 14px; color: #999; margin-top: 5px; }
+    .search-card { margin-bottom: 20px; }
+    .card-header { display: flex; justify-content: space-between; align-items: center; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <router-view></router-view>
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, onMounted, watch } = Vue;
+const { createRouter, createWebHistory } = VueRouter;
+
+// 中文语言包（内联）
+const zhCn = {
+  el: {
+    pagination: {
+      goto: '前往',
+      pagesize: '条/页',
+      total: '共 {total} 条',
+      pageClassifier: '页'
+    },
+    messagebox: {
+      title: '提示',
+      confirm: '确定',
+      cancel: '取消'
+    },
+    empty: { description: '暂无数据' }
+  }
+};
+
+// 数据存储
+const db = {
+  admins: [{ id: 1, username: 'admin', password: 'admin123', name: '系统管理员', role: 'super_admin' }],
+  users: [],
+  categories: [
+    { id: 1, name: '消防安全', icon: '🔥', description: '火灾隐患、消防设施等问题', sort_order: 1 },
+    { id: 2, name: '交通安全', icon: '🚗', description: '道路、车辆、交通设施隐患', sort_order: 2 },
+    { id: 3, name: '建筑安全', icon: '🏗️', description: '建筑物结构、施工安全隐患', sort_order: 3 },
+    { id: 4, name: '电气安全', icon: '⚡', description: '用电、电气设备隐患', sort_order: 4 },
+    { id: 5, name: '燃气安全', icon: '💨', description: '燃气管道、设备隐患', sort_order: 5 },
+    { id: 6, name: '食品安全', icon: '🍔', description: '食品卫生、餐饮安全', sort_order: 6 },
+    { id: 7, name: '环境安全', icon: '🌿', description: '环境污染、生态破坏', sort_order: 7 },
+    { id: 8, name: '公共设施', icon: '🏛️', description: '市政设施、公共场所隐患', sort_order: 8 },
+    { id: 9, name: '特种设备', icon: '⚙️', description: '电梯、锅炉等特种设备隐患', sort_order: 9 },
+    { id: 10, name: '职业健康', icon: '😷', description: '职业病危害、劳动保护', sort_order: 10 },
+    { id: 11, name: '校园安全', icon: '🏫', description: '学校、教育机构安全隐患', sort_order: 11 },
+    { id: 12, name: '社区安全', icon: '🏘️', description: '小区、社区安全隐患', sort_order: 12 }
+  ],
+  hazardTypes: [
+    { id: 1, category_id: 1, name: '消防通道堵塞', description: '疏散通道、安全出口被占用或堵塞', risk_level: '重大' },
+    { id: 2, category_id: 1, name: '消防设施损坏', description: '灭火器、消火栓、喷淋系统等损坏失效', risk_level: '重大' },
+    { id: 3, category_id: 1, name: '电动车违规充电', description: '电动车室内充电、飞线充电', risk_level: '重大' },
+    { id: 4, category_id: 2, name: '道路破损', description: '路面坑洼、塌陷影响通行安全', risk_level: '较大' },
+    { id: 5, category_id: 2, name: '井盖缺失', description: '窨井盖缺失或破损', risk_level: '重大' },
+    { id: 6, category_id: 3, name: '墙体开裂', description: '建筑物墙体出现裂缝', risk_level: '重大' },
+    { id: 7, category_id: 3, name: '高空坠物风险', description: '空调外机、广告牌等松动', risk_level: '重大' },
+    { id: 8, category_id: 4, name: '电线老化', description: '电线绝缘层老化破损', risk_level: '重大' },
+    { id: 9, category_id: 4, name: '私拉乱接', description: '违规私接电线', risk_level: '重大' },
+    { id: 10, category_id: 9, name: '电梯故障', description: '电梯运行异常、困人', risk_level: '重大' }
+  ],
+  hazards: []
+};
+
+function loadData() {
+  const saved = localStorage.getItem('hazard_db');
+  if (saved) {
+    const data = JSON.parse(saved);
+    db.users = data.users || [];
+    db.hazards = data.hazards || [];
+  }
+}
+
+function saveData() {
+  localStorage.setItem('hazard_db', JSON.stringify({ users: db.users, hazards: db.hazards }));
+}
+
+// 登录页面
+const Login = {
+  template: `
+    <div class="login-container">
+      <div class="login-box">
+        <h2>隐患排查管理系统</h2>
+        <el-form :model="form" ref="formRef">
+          <el-form-item>
+            <el-input v-model="form.username" placeholder="用户名" size="large" :prefix-icon="User" />
+          </el-form-item>
+          <el-form-item>
+            <el-input v-model="form.password" type="password" placeholder="密码" size="large" :prefix-icon="Lock" @keyup.enter="handleLogin" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" size="large" @click="handleLogin" :loading="loading" style="width: 100%">登 录</el-button>
+          </el-form-item>
+        </el-form>
+        <p class="tip">默认账号: admin / admin123</p>
+      </div>
+    </div>
+  `,
+  setup() {
+    const formRef = ref();
+    const loading = ref(false);
+    const form = reactive({ username: '', password: '' });
+    const router = VueRouter.useRouter();
+
+    const handleLogin = async () => {
+      loading.value = true;
+      setTimeout(() => {
+        const admin = db.admins.find(a => a.username === form.username && a.password === form.password);
+        if (admin) {
+          localStorage.setItem('admin_token', 'logged_in');
+          localStorage.setItem('admin_info', JSON.stringify(admin));
+          ElementPlus.ElMessage.success('登录成功');
+          router.push('/');
+        } else {
+          ElementPlus.ElMessage.error('用户名或密码错误');
+        }
+        loading.value = false;
+      }, 500);
+    };
+
+    return { formRef, form, loading, handleLogin, User: ElementPlusIconsVue.User, Lock: ElementPlusIconsVue.Lock };
+  }
+};
+
+// 布局组件
+const Layout = {
+  template: `
+    <div class="layout-container">
+      <el-aside width="220px" class="sidebar">
+        <div class="logo"><span class="icon">🔍</span><span class="text">隐患排查系统</span></div>
+        <el-menu :default-active="$route.path" router background-color="#304156" text-color="#bfcbd9" active-text-color="#409EFF">
+          <el-menu-item index="/dashboard"><el-icon><DataAnalysis /></el-icon><span>数据概览</span></el-menu-item>
+          <el-menu-item index="/hazards"><el-icon><Warning /></el-icon><span>隐患管理</span></el-menu-item>
+          <el-menu-item index="/users"><el-icon><User /></el-icon><span>用户管理</span></el-menu-item>
+          <el-menu-item index="/categories"><el-icon><Menu /></el-icon><span>分类管理</span></el-menu-item>
+          <el-menu-item index="/types"><el-icon><List /></el-icon><span>隐患类型</span></el-menu-item>
+        </el-menu>
+      </el-aside>
+      <el-container>
+        <el-header class="header">
+          <div class="title">{{ $route.meta.title }}</div>
+          <el-dropdown @command="handleCommand">
+            <div class="user-info"><el-avatar :size="32" icon="User" /><span class="name" style="margin-left:8px">{{ adminInfo.name }}</span></div>
+            <template #dropdown><el-dropdown-menu><el-dropdown-item command="logout">退出登录</el-dropdown-item></el-dropdown-menu></template>
+          </el-dropdown>
+        </el-header>
+        <el-main class="main"><router-view></router-view></el-main>
+      </el-container>
+    </div>
+  `,
+  setup() {
+    const adminInfo = JSON.parse(localStorage.getItem('admin_info') || '{}');
+    const router = VueRouter.useRouter();
+
+    const handleCommand = (cmd) => {
+      if (cmd === 'logout') {
+        localStorage.removeItem('admin_token');
+        localStorage.removeItem('admin_info');
+        ElementPlus.ElMessage.success('已退出登录');
+        router.push('/login');
+      }
+    };
+
+    return { adminInfo, handleCommand, DataAnalysis: ElementPlusIconsVue.DataAnalysis, Warning: ElementPlusIconsVue.Warning, User: ElementPlusIconsVue.User, Menu: ElementPlusIconsVue.Menu, List: ElementPlusIconsVue.List };
+  }
+};
+
+// 仪表盘
+const Dashboard = {
+  template: `
+    <div>
+      <el-row :gutter="20" class="stat-cards">
+        <el-col :span="6"><el-card shadow="hover" class="stat-card"><div class="stat-content"><div class="stat-icon" style="background:rgba(64,158,255,0.1);color:#409eff"><el-icon :size="40"><Document /></el-icon></div><div class="stat-info"><div class="stat-value">{{ stats.total }}</div><div class="stat-label">隐患总数</div></div></div></el-card></el-col>
+        <el-col :span="6"><el-card shadow="hover" class="stat-card"><div class="stat-content"><div class="stat-icon" style="background:rgba(230,162,60,0.1);color:#e6a23c"><el-icon :size="40"><Clock /></el-icon></div><div class="stat-info"><div class="stat-value">{{ stats.pending }}</div><div class="stat-label">待处理</div></div></div></el-card></el-col>
+        <el-col :span="6"><el-card shadow="hover" class="stat-card"><div class="stat-content"><div class="stat-icon" style="background:rgba(144,147,153,0.1);color:#909399"><el-icon :size="40"><Loading /></el-icon></div><div class="stat-info"><div class="stat-value">{{ stats.processing }}</div><div class="stat-label">处理中</div></div></div></el-card></el-col>
+        <el-col :span="6"><el-card shadow="hover" class="stat-card"><div class="stat-content"><div class="stat-icon" style="background:rgba(103,194,58,0.1);color:#67c23a"><el-icon :size="40"><CircleCheck /></el-icon></div><div class="stat-info"><div class="stat-value">{{ stats.completed }}</div><div class="stat-label">已处理</div></div></div></el-card></el-col>
+      </el-row>
+      <el-row :gutter="20" class="charts">
+        <el-col :span="12"><el-card shadow="hover"><template #header><span>隐患分类统计</span></template><div ref="pieChart" style="height:300px"></div></el-card></el-col>
+        <el-col :span="12"><el-card shadow="hover"><template #header><span>风险等级分布</span></template><div ref="barChart" style="height:300px"></div></el-card></el-col>
+      </el-row>
+    </div>
+  `,
+  setup() {
+    const pieChart = ref();
+    const barChart = ref();
+    const stats = reactive({ total: 0, pending: 0, processing: 0, completed: 0 });
+
+    onMounted(() => {
+      loadData();
+      stats.total = db.hazards.length;
+      stats.pending = db.hazards.filter(h => h.status === '待处理').length;
+      stats.processing = db.hazards.filter(h => h.status === '处理中').length;
+      stats.completed = db.hazards.filter(h => h.status === '已处理').length;
+
+      if (typeof echarts !== 'undefined') {
+        const pie = echarts.init(pieChart.value);
+        const categoryCount = {};
+        db.hazards.forEach(h => {
+          const cat = db.categories.find(c => c.id === h.category_id);
+          if (cat) categoryCount[cat.name] = (categoryCount[cat.name] || 0) + 1;
+        });
+        pie.setOption({
+          tooltip: { trigger: 'item' },
+          series: [{ type: 'pie', radius: '50%', data: Object.entries(categoryCount).map(([name, value]) => ({ name, value })) }]
+        });
+
+        const bar = echarts.init(barChart.value);
+        const riskCount = { '重大': 0, '较大': 0, '一般': 0 };
+        db.hazards.forEach(h => { if (riskCount[h.risk_level] !== undefined) riskCount[h.risk_level]++; });
+        bar.setOption({
+          tooltip: { trigger: 'axis' },
+          xAxis: { type: 'category', data: ['重大', '较大', '一般'] },
+          yAxis: { type: 'value' },
+          series: [{ type: 'bar', data: [riskCount['重大'], riskCount['较大'], riskCount['一般']] }]
+        });
+      }
+    });
+
+    return { pieChart, barChart, stats, Document: ElementPlusIconsVue.Document, Clock: ElementPlusIconsVue.Clock, Loading: ElementPlusIconsVue.Loading, CircleCheck: ElementPlusIconsVue.CircleCheck };
+  }
+};
+
+// 隐患管理
+const Hazards = {
+  template: `
+    <div>
+      <el-card shadow="hover" class="search-card">
+        <el-form :inline="true" :model="searchForm">
+          <el-form-item label="关键词"><el-input v-model="searchForm.keyword" placeholder="搜索标题/描述/位置" clearable @keyup.enter="handleSearch" /></el-form-item>
+          <el-form-item label="分类"><el-select v-model="searchForm.category_id" placeholder="全部分类" clearable><el-option v-for="cat in categories" :key="cat.id" :label="cat.name" :value="cat.id" /></el-select></el-form-item>
+          <el-form-item label="状态"><el-select v-model="searchForm.status" placeholder="全部状态" clearable><el-option label="待处理" value="待处理" /><el-option label="处理中" value="处理中" /><el-option label="已处理" value="已处理" /></el-select></el-form-item>
+          <el-form-item><el-button type="primary" @click="handleSearch">搜索</el-button><el-button @click="resetSearch">重置</el-button></el-form-item>
+        </el-form>
+      </el-card>
+      <el-card shadow="hover">
+        <el-table :data="filteredHazards" stripe>
+          <el-table-column prop="title" label="标题" min-width="150" />
+          <el-table-column prop="category_name" label="分类" width="120" />
+          <el-table-column prop="location" label="位置" width="150" />
+          <el-table-column prop="risk_level" label="风险等级" width="100"><template #default="{ row }"><el-tag :type="getRiskType(row.risk_level)" size="small">{{ row.risk_level }}</el-tag></template></el-table-column>
+          <el-table-column prop="status" label="状态" width="100"><template #default="{ row }"><el-tag :type="getStatusType(row.status)" size="small">{{ row.status }}</el-tag></template></el-table-column>
+          <el-table-column prop="created_at" label="上报时间" width="180" />
+          <el-table-column label="操作" width="200" fixed="right"><template #default="{ row }"><el-button type="primary" link @click="viewDetail(row)">查看</el-button><el-button type="success" link @click="handleHazard(row)" :disabled="row.status === '已处理'">处理</el-button><el-button type="danger" link @click="deleteHazard(row)">删除</el-button></template></el-table-column>
+        </el-table>
+      </el-card>
+      <el-dialog v-model="detailVisible" title="隐患详情" width="600px">
+        <el-descriptions :column="1" border v-if="currentHazard">
+          <el-descriptions-item label="标题">{{ currentHazard.title }}</el-descriptions-item>
+          <el-descriptions-item label="分类">{{ currentHazard.category_name }}</el-descriptions-item>
+          <el-descriptions-item label="位置">{{ currentHazard.location }}</el-descriptions-item>
+          <el-descriptions-item label="描述">{{ currentHazard.description }}</el-descriptions-item>
+          <el-descriptions-item label="风险等级"><el-tag :type="getRiskType(currentHazard.risk_level)">{{ currentHazard.risk_level }}</el-tag></el-descriptions-item>
+          <el-descriptions-item label="状态"><el-tag :type="getStatusType(currentHazard.status)">{{ currentHazard.status }}</el-tag></el-descriptions-item>
+          <el-descriptions-item label="上报人">{{ currentHazard.reporter_name }} ({{ currentHazard.reporter_phone }})</el-descriptions-item>
+          <el-descriptions-item label="上报时间">{{ currentHazard.created_at }}</el-descriptions-item>
+        </el-descriptions>
+      </el-dialog>
+      <el-dialog v-model="handleVisible" title="处理隐患" width="500px">
+        <el-form :model="handleForm" label-width="80px">
+          <el-form-item label="处理状态"><el-select v-model="handleForm.status"><el-option label="处理中" value="处理中" /><el-option label="已处理" value="已处理" /></el-select></el-form-item>
+          <el-form-item label="处理人"><el-input v-model="handleForm.handler_name" /></el-form-item>
+          <el-form-item label="处理结果"><el-input v-model="handleForm.handle_result" type="textarea" :rows="3" /></el-form-item>
+        </el-form>
+        <template #footer><el-button @click="handleVisible = false">取消</el-button><el-button type="primary" @click="submitHandle">确定</el-button></template>
+      </el-dialog>
+    </div>
+  `,
+  setup() {
+    loadData();
+    const categories = db.categories;
+    const hazards = ref([]);
+    const filteredHazards = ref([]);
+    const searchForm = reactive({ keyword: '', category_id: '', status: '' });
+    const detailVisible = ref(false);
+    const handleVisible = ref(false);
+    const currentHazard = ref(null);
+    const handleForm = reactive({ status: '已处理', handler_name: '', handle_result: '' });
+
+    const refreshHazards = () => {
+      loadData();
+      hazards.value = db.hazards.map(h => ({
+        ...h,
+        category_name: db.categories.find(c => c.id === h.category_id)?.name || ''
+      }));
+      filteredHazards.value = hazards.value;
+    };
+
+    refreshHazards();
+
+    const handleSearch = () => {
+      filteredHazards.value = hazards.value.filter(h => {
+        if (searchForm.keyword && !h.title.includes(searchForm.keyword) && !h.description?.includes(searchForm.keyword)) return false;
+        if (searchForm.category_id && h.category_id !== searchForm.category_id) return false;
+        if (searchForm.status && h.status !== searchForm.status) return false;
+        return true;
+      });
+    };
+
+    const resetSearch = () => {
+      searchForm.keyword = '';
+      searchForm.category_id = '';
+      searchForm.status = '';
+      filteredHazards.value = hazards.value;
+    };
+
+    const viewDetail = (row) => { currentHazard.value = row; detailVisible.value = true; };
+    
+    const handleHazard = (row) => {
+      currentHazard.value = row;
+      handleForm.status = '已处理';
+      handleForm.handler_name = '';
+      handleForm.handle_result = '';
+      handleVisible.value = true;
+    };
+
+    const submitHandle = () => {
+      const idx = db.hazards.findIndex(h => h.id === currentHazard.value.id);
+      if (idx > -1) {
+        db.hazards[idx].status = handleForm.status;
+        db.hazards[idx].handler_name = handleForm.handler_name;
+        db.hazards[idx].handle_result = handleForm.handle_result;
+        db.hazards[idx].handled_at = new Date().toLocaleString();
+        saveData();
+        refreshHazards();
+      }
+      handleVisible.value = false;
+      ElementPlus.ElMessage.success('处理成功');
+    };
+
+    const deleteHazard = (row) => {
+      ElementPlus.ElMessageBox.confirm('确定要删除这条隐患记录吗？', '提示', { type: 'warning' }).then(() => {
+        const idx = db.hazards.findIndex(h => h.id === row.id);
+        if (idx > -1) { db.hazards.splice(idx, 1); saveData(); refreshHazards(); }
+        ElementPlus.ElMessage.success('删除成功');
+      }).catch(() => {});
+    };
+
+    const getRiskType = (level) => ({ '重大': 'danger', '较大': 'warning', '一般': 'info' }[level] || 'info');
+    const getStatusType = (status) => ({ '待处理': 'warning', '处理中': 'info', '已处理': 'success' }[status] || 'info');
+
+    return { categories, filteredHazards, searchForm, detailVisible, handleVisible, currentHazard, handleForm, handleSearch, resetSearch, viewDetail, handleHazard, submitHandle, deleteHazard, getRiskType, getStatusType };
+  }
+};
+
+// 用户管理
+const Users = {
+  template: `
+    <div>
+      <el-card shadow="hover" class="search-card">
+        <el-form :inline="true" :model="searchForm">
+          <el-form-item label="关键词"><el-input v-model="searchForm.keyword" placeholder="搜索手机号/姓名" clearable /></el-form-item>
+          <el-form-item><el-button type="primary" @click="handleSearch">搜索</el-button><el-button @click="resetSearch">重置</el-button><el-button type="success" @click="showAddDialog">添加用户</el-button></el-form-item>
+        </el-form>
+      </el-card>
+      <el-card shadow="hover">
+        <el-table :data="filteredUsers" stripe>
+          <el-table-column prop="phone" label="手机号" width="150" />
+          <el-table-column prop="name" label="姓名" width="120" />
+          <el-table-column prop="status" label="状态" width="100"><template #default="{ row }"><el-tag :type="row.status === 'active' ? 'success' : 'danger'" size="small">{{ row.status === 'active' ? '正常' : '禁用' }}</el-tag></template></el-table-column>
+          <el-table-column prop="created_at" label="注册时间" width="180" />
+          <el-table-column label="操作" width="200"><template #default="{ row }"><el-button type="primary" link @click="editUser(row)">编辑</el-button><el-button type="warning" link @click="resetPwd(row)">重置密码</el-button><el-button type="danger" link @click="deleteUser(row)">删除</el-button></template></el-table-column>
+        </el-table>
+      </el-card>
+      <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑用户' : '添加用户'" width="500px">
+        <el-form :model="form" label-width="80px">
+          <el-form-item label="手机号"><el-input v-model="form.phone" /></el-form-item>
+          <el-form-item label="姓名"><el-input v-model="form.name" /></el-form-item>
+          <el-form-item label="密码" v-if="!isEdit"><el-input v-model="form.password" type="password" /></el-form-item>
+          <el-form-item label="状态"><el-select v-model="form.status"><el-option label="正常" value="active" /><el-option label="禁用" value="disabled" /></el-select></el-form-item>
+        </el-form>
+        <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" @click="submitForm">确定</el-button></template>
+      </el-dialog>
+    </div>
+  `,
+  setup() {
+    loadData();
+    const users = ref(db.users);
+    const filteredUsers = ref(users.value);
+    const searchForm = reactive({ keyword: '' });
+    const dialogVisible = ref(false);
+    const isEdit = ref(false);
+    const form = reactive({ id: '', phone: '', name: '', password: '', status: 'active' });
+
+    const handleSearch = () => {
+      filteredUsers.value = users.value.filter(u => !searchForm.keyword || u.phone.includes(searchForm.keyword) || u.name?.includes(searchForm.keyword));
+    };
+
+    const resetSearch = () => { searchForm.keyword = ''; filteredUsers.value = users.value; };
+
+    const showAddDialog = () => {
+      isEdit.value = false;
+      Object.assign(form, { id: '', phone: '', name: '', password: '', status: 'active' });
+      dialogVisible.value = true;
+    };
+
+    const editUser = (row) => {
+      isEdit.value = true;
+      Object.assign(form, { id: row.id, phone: row.phone, name: row.name, status: row.status });
+      dialogVisible.value = true;
+    };
+
+    const submitForm = () => {
+      if (isEdit.value) {
+        const idx = db.users.findIndex(u => u.id === form.id);
+        if (idx > -1) { Object.assign(db.users[idx], { phone: form.phone, name: form.name, status: form.status }); }
+      } else {
+        db.users.push({ id: Date.now().toString(), phone: form.phone, name: form.name, password: form.password, status: form.status, created_at: new Date().toLocaleString() });
+      }
+      saveData();
+      users.value = [...db.users];
+      filteredUsers.value = users.value;
+      dialogVisible.value = false;
+      ElementPlus.ElMessage.success(isEdit.value ? '更新成功' : '添加成功');
+    };
+
+    const resetPwd = (row) => {
+      ElementPlus.ElMessageBox.prompt('请输入新密码', '重置密码', { confirmButtonText: '确定', cancelButtonText: '取消' }).then(({ value }) => {
+        const idx = db.users.findIndex(u => u.id === row.id);
+        if (idx > -1) { db.users[idx].password = value; saveData(); }
+        ElementPlus.ElMessage.success('密码重置成功');
+      }).catch(() => {});
+    };
+
+    const deleteUser = (row) => {
+      ElementPlus.ElMessageBox.confirm('确定要删除该用户吗？', '提示', { type: 'warning' }).then(() => {
+        const idx = db.users.findIndex(u => u.id === row.id);
+        if (idx > -1) { db.users.splice(idx, 1); saveData(); users.value = [...db.users]; filteredUsers.value = users.value; }
+        ElementPlus.ElMessage.success('删除成功');
+      }).catch(() => {});
+    };
+
+    return { filteredUsers, searchForm, dialogVisible, isEdit, form, handleSearch, resetSearch, showAddDialog, editUser, submitForm, resetPwd, deleteUser };
+  }
+};
+
+// 分类管理
+const Categories = {
+  template: `
+    <div>
+      <el-card shadow="hover">
+        <template #header><div class="card-header"><span>隐患分类管理</span><el-button type="primary" @click="showAddDialog">添加分类</el-button></div></template>
+        <el-table :data="categories" stripe>
+          <el-table-column prop="id" label="ID" width="80" />
+          <el-table-column prop="icon" label="图标" width="80"><template #default="{ row }"><span style="font-size:24px">{{ row.icon }}</span></template></el-table-column>
+          <el-table-column prop="name" label="分类名称" width="150" />
+          <el-table-column prop="description" label="描述" />
+          <el-table-column prop="sort_order" label="排序" width="80" />
+          <el-table-column label="操作" width="150"><template #default="{ row }"><el-button type="primary" link @click="editCategory(row)">编辑</el-button><el-button type="danger" link @click="deleteCategory(row)">删除</el-button></template></el-table-column>
+        </el-table>
+      </el-card>
+      <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑分类' : '添加分类'" width="500px">
+        <el-form :model="form" label-width="80px">
+          <el-form-item label="图标"><el-input v-model="form.icon" /></el-form-item>
+          <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
+          <el-form-item label="描述"><el-input v-model="form.description" /></el-form-item>
+          <el-form-item label="排序"><el-input-number v-model="form.sort_order" :min="0" /></el-form-item>
+        </el-form>
+        <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" @click="submitForm">确定</el-button></template>
+      </el-dialog>
+    </div>
+  `,
+  setup() {
+    const categories = ref([...db.categories]);
+    const dialogVisible = ref(false);
+    const isEdit = ref(false);
+    const form = reactive({ id: '', icon: '', name: '', description: '', sort_order: 0 });
+
+    const showAddDialog = () => {
+      isEdit.value = false;
+      Object.assign(form, { id: '', icon: '', name: '', description: '', sort_order: 0 });
+      dialogVisible.value = true;
+    };
+
+    const editCategory = (row) => {
+      isEdit.value = true;
+      Object.assign(form, row);
+      dialogVisible.value = true;
+    };
+
+    const submitForm = () => {
+      if (isEdit.value) {
+        const idx = db.categories.findIndex(c => c.id === form.id);
+        if (idx > -1) { Object.assign(db.categories[idx], form); }
+      } else {
+        const newId = Math.max(...db.categories.map(c => c.id)) + 1;
+        db.categories.push({ ...form, id: newId });
+      }
+      categories.value = [...db.categories];
+      dialogVisible.value = false;
+      ElementPlus.ElMessage.success(isEdit.value ? '更新成功' : '添加成功');
+    };
+
+    const deleteCategory = (row) => {
+      ElementPlus.ElMessageBox.confirm('确定要删除该分类吗？', '提示', { type: 'warning' }).then(() => {
+        const idx = db.categories.findIndex(c => c.id === row.id);
+        if (idx > -1) { db.categories.splice(idx, 1); categories.value = [...db.categories]; }
+        ElementPlus.ElMessage.success('删除成功');
+      }).catch(() => {});
+    };
+
+    return { categories, dialogVisible, isEdit, form, showAddDialog, editCategory, submitForm, deleteCategory };
+  }
+};
+
+// 隐患类型管理
+const HazardTypes = {
+  template: `
+    <div>
+      <el-card shadow="hover">
+        <template #header><div class="card-header"><span>隐患类型管理</span><el-button type="primary" @click="showAddDialog">添加类型</el-button></div></template>
+        <el-table :data="types" stripe>
+          <el-table-column prop="id" label="ID" width="80" />
+          <el-table-column label="所属分类" width="120"><template #default="{ row }"><span>{{ getCategoryIcon(row.category_id) }} {{ getCategoryName(row.category_id) }}</span></template></el-table-column>
+          <el-table-column prop="name" label="类型名称" width="180" />
+          <el-table-column prop="description" label="描述" />
+          <el-table-column prop="risk_level" label="风险等级" width="100"><template #default="{ row }"><el-tag :type="getRiskType(row.risk_level)" size="small">{{ row.risk_level }}</el-tag></template></el-table-column>
+          <el-table-column label="操作" width="150"><template #default="{ row }"><el-button type="primary" link @click="editType(row)">编辑</el-button><el-button type="danger" link @click="deleteType(row)">删除</el-button></template></el-table-column>
+        </el-table>
+      </el-card>
+      <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑类型' : '添加类型'" width="500px">
+        <el-form :model="form" label-width="80px">
+          <el-form-item label="所属分类"><el-select v-model="form.category_id"><el-option v-for="cat in categories" :key="cat.id" :label="cat.name" :value="cat.id" /></el-select></el-form-item>
+          <el-form-item label="类型名称"><el-input v-model="form.name" /></el-form-item>
+          <el-form-item label="描述"><el-input v-model="form.description" /></el-form-item>
+          <el-form-item label="风险等级"><el-select v-model="form.risk_level"><el-option label="重大" value="重大" /><el-option label="较大" value="较大" /><el-option label="一般" value="一般" /></el-select></el-form-item>
+        </el-form>
+        <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" @click="submitForm">确定</el-button></template>
+      </el-dialog>
+    </div>
+  `,
+  setup() {
+    const categories = db.categories;
+    const types = ref([...db.hazardTypes]);
+    const dialogVisible = ref(false);
+    const isEdit = ref(false);
+    const form = reactive({ id: '', category_id: '', name: '', description: '', risk_level: '一般' });
+
+    const getCategoryName = (id) => db.categories.find(c => c.id === id)?.name || '';
+    const getCategoryIcon = (id) => db.categories.find(c => c.id === id)?.icon || '';
+    const getRiskType = (level) => ({ '重大': 'danger', '较大': 'warning', '一般': 'info' }[level] || 'info');
+
+    const showAddDialog = () => {
+      isEdit.value = false;
+      Object.assign(form, { id: '', category_id: '', name: '', description: '', risk_level: '一般' });
+      dialogVisible.value = true;
+    };
+
+    const editType = (row) => {
+      isEdit.value = true;
+      Object.assign(form, row);
+      dialogVisible.value = true;
+    };
+
+    const submitForm = () => {
+      if (isEdit.value) {
+        const idx = db.hazardTypes.findIndex(t => t.id === form.id);
+        if (idx > -1) { Object.assign(db.hazardTypes[idx], form); }
+      } else {
+        const newId = Math.max(...db.hazardTypes.map(t => t.id)) + 1;
+        db.hazardTypes.push({ ...form, id: newId });
+      }
+      types.value = [...db.hazardTypes];
+      dialogVisible.value = false;
+      ElementPlus.ElMessage.success(isEdit.value ? '更新成功' : '添加成功');
+    };
+
+    const deleteType = (row) => {
+      ElementPlus.ElMessageBox.confirm('确定要删除该类型吗？', '提示', { type: 'warning' }).then(() => {
+        const idx = db.hazardTypes.findIndex(t => t.id === row.id);
+        if (idx > -1) { db.hazardTypes.splice(idx, 1); types.value = [...db.hazardTypes]; }
+        ElementPlus.ElMessage.success('删除成功');
+      }).catch(() => {});
+    };
+
+    return { categories, types, dialogVisible, isEdit, form, getCategoryName, getCategoryIcon, getRiskType, showAddDialog, editType, submitForm, deleteType };
+  }
+};
+
+// 路由配置
+const routes = [
+  { path: '/login', name: 'Login', component: Login },
+  { path: '/', component: Layout, redirect: '/dashboard', children: [
+    { path: 'dashboard', name: 'Dashboard', component: Dashboard, meta: { title: '数据概览' } },
+    { path: 'hazards', name: 'Hazards', component: Hazards, meta: { title: '隐患管理' } },
+    { path: 'users', name: 'Users', component: Users, meta: { title: '用户管理' } },
+    { path: 'categories', name: 'Categories', component: Categories, meta: { title: '分类管理' } },
+    { path: 'types', name: 'HazardTypes', component: HazardTypes, meta: { title: '隐患类型' } }
+  ]}
+];
+
+const router = createRouter({ history: createWebHistory(), routes });
+
+router.beforeEach((to, from, next) => {
+  const isLoggedIn = localStorage.getItem('admin_token');
+  if (to.path !== '/login' && !isLoggedIn) next('/login');
+  else next();
+});
+
+// 创建应用
+const app = createApp({});
+app.use(ElementPlus, { locale: zhCn });
+app.use(router);
+
+// 注册图标
+if (typeof ElementPlusIconsVue !== 'undefined') {
+  for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+    app.component(key, component);
+  }
+}
+
+app.mount('#app');
+</script>
+</body>
+</html>
